@@ -21,6 +21,14 @@ GETosm <- function(aabb, key, value='.') {
     osmdata_sf(query)
 }
 
+rhumbDist2Degrees <- function(m, lat) {
+    ## lat: latitude in decimal degrees
+    ## m: distance in meters
+    ## returns meters in 1 degree of longitude at latitude
+    cos(lat) * 111321 # 111321 meters/degree at equator
+}
+## instead: rhumbDist2Degrees <- mymeters / distRhumb(pnt, pnt+c(1, 0))
+
 ui <- fluidPage(
     titlePanel('food-deserts')
     sidebarLayout(
@@ -83,9 +91,22 @@ shinyApp(ui=ui, server=server)
 
 ## GETosm(aabb, 'shop', c('bakery', 'butcher', 'cheese', 'deli', 'dairy', 'farm', 'greengrocer', 'froze_food', 'pasta', 'seafood', 'supermarket'))
 
+## instead: rhumbDist2Degrees <- mymeters / distRhumb(pnt, pnt+c(1, 0))
 pnt <- c(40.1165037, -88.2417297)
 pnt <- st_sfc(st_point(pnt), crs=4326)
-aabb <- st_make_grid(pnt, what='centers')
+westPnt <- pnt + c(0, -1)
+eastPnt <- pnt + c(0, 1)
+northPnt <- pnt + c(1, 0)
+southPnt <- pnt + c(-1, 0)
+
+spPnt <- as(pnt, 'Spatial')
+spPntN <- as(westPnt, 'Spatial')
+spPntE <- as(eastPnt, 'Spatial')
+spPntW <- as(northPnt, 'Spatial')
+spPntS <- as(southPnt, 'Spatial')
+rhumbDist2Degrees <- 10000 / distRhumb(spPnt, spPntE) # it works!: 10km to degrees at longlat
+
+## aabb <- st_make_grid(pnt, what='centers')
 foodOases <- GETosm(aabb)
 projPoints <- st_transform(foodOases $osm_points, 3857) # why 3857?
 st_buffer(projPoints, ud_units $mi)
