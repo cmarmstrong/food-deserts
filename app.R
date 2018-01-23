@@ -21,9 +21,11 @@ statesUS <- st_transform(statesUS, 3083)
 statesUS <- with(statesUS, statesUS[order(name), ]) # 4-color assignment is in alpha order
 statesUS $color <- factor(c(2, 1, 4, 3, 1, 2, 3, 3, 4, 1, 4, 4, 2, 4, 1, 3, 1, 2, 1, 1, 4, 2, 4, 4, 4, 2, 4, 4, 3, 4, 1, 3, 4, 2, 2, 3, 4, 4, 2, 1, 1, 1, 1, 2, 1, 1, 3, 1, 1, 1, 3))
 
+urbanUS <- load('data/urbanUS.rda')
+nullOSM <- load('data/nullOSM.rda')
+
 ## statesUS colors
 col <- brewer.pal(4, 'Pastel1')[as.numeric(statesUS $color)]
-
 
 ## functions
 dist2Degrees <- function(d, p1, p2) {
@@ -69,35 +71,48 @@ server <- function(input, output) {
             rV $pnt <- NA
         }
     })
+    ## reactives
+    GETosm <- reactive({
+        if(!is.na(rV $pnt)) return nullOSM
+        pnt <- rV $pnt
+        pntE <- pnt + c(0, 1)
+        pntN <- pnt + c(1, 0)
+        spPntE <- as(pntE, 'Spatial')
+        spPntN <- as(pntN, 'Spatial')
+        dE <- dist2Degrees(7e3, spPnt, spPntE)
+        dN <- dist2Degrees(7e3, spPnt, spPntN)
+        pntNE <- pnt + c(dN, dE)
+        pntNW <- pnt + c(dN, -dE)
+        pntSE <- pnt + c(-dN, dE)
+        pntSW <- pnt + c(-dN, -dE)
+        ## make bbox for overpass
+        aabb <- st_make_grid(st_sfc(c(pntNW, pntNE, pntSE, pntSW)), n=1)
+        st_crs(aabb) <- 4326
+        ## query
+        GETosm(aabb, 'shop', 'supermarket')
+    })
+    ## table
+    output $table <- renderTable({
+        browser()
+        osm <- GETosm()
+        with(osm $osm_points,
+             as.matrix(c(supermarkets=0,
+                         bakery=0,
+                         'long lat'="",
+                         ))
+             )
+    }, rownames=TRUE, colnames=FALSE)
     ## main
     output $main <- renderPlot({
-        if(!is.na(rV $pnt)) { # viewing data
-            browser()
-            pnt <- rV $pnt
-            pntE <- pnt + c(0, 1)
-            pntN <- pnt + c(1, 0)
-            spPntE <- as(pntE, 'Spatial')
-            spPntN <- as(pntN, 'Spatial')
-            dE <- dist2Degrees(7e3, spPnt, spPntE)
-            dN <- dist2Degrees(7e3, spPnt, spPntN)
-            pntNE <- pnt + c(dN, dE)
-            pntNW <- pnt + c(dN, -dE)
-            pntSE <- pnt + c(-dN, dE)
-            pntSW <- pnt + c(-dN, -dE)
-            ## make bbox for overpass
-            aabb <- st_make_grid(st_sfc(c(pntNW, pntNE, pntSE, pntSW)), n=1)
-            st_crs(aabb) <- 4326
-            ## query
-            osm <- GETosm(aabb, 'shop', 'supermarket')
-            if(nrow(osm $osm_points)>0) { # if query is not empty # TODO: plot roads
-                osm <- st_transform(osm $osm_points, 3083) # buffer in projection
-                food <- st_buffer(osm, ud_units $mi)
-                food <- st_union(food)
-                urbanFood <- crop(urbanUS, as(food, 'Spatial'))
-                ## plot
-                plot(urbanFood)
-                plot(st_geometry(food), add=TRUE)
-            }
+        osm <- GETosm()
+        if(nrow(osm $osm_points)>0) { # if query is not empty
+            osm <- st_transform(osm $osm_points, 3083) # buffer in projection
+            food <- st_buffer(osm, ud_units $mi)
+            food <- st_union(food)
+            urbanFood <- crop(urbanUS, as(food, 'Spatial'))
+            ## plot
+            plot(urbanFood)
+            plot(st_geometry(food), add=TRUE)
         } else {
             bbox <- st_bbox(statesUS)
             plot(statesUS[, 'color'], xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],

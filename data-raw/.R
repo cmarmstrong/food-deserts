@@ -40,3 +40,7 @@ writeRaster(raster(bkUrban, layer=4), 'urbanUS.tif')
 
 urbanUS <- readAll(raster('data-raw/urbanUS.tif'))
 save(urbanUS, file='data/urbanUS.rda', compress='bzip2')
+
+nullOSM <- st_transform(st_make_grid(
+    ne_countries(scale=10, country='united states of america'), n=1), 3083)
+save(nullOSM, file='data/nullOSM.rda')
