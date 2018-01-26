@@ -1,6 +1,7 @@
 library(geosphere)
 library(osmdata)
 library(RColorBrewer)
+library(raster)
 library(rnaturalearth)
 library(sf)
 library(shiny)
@@ -21,23 +22,38 @@ statesUS <- st_transform(statesUS, 3083)
 statesUS <- with(statesUS, statesUS[order(name), ]) # 4-color assignment is in alpha order
 statesUS $color <- factor(c(2, 1, 4, 3, 1, 2, 3, 3, 4, 1, 4, 4, 2, 4, 1, 3, 1, 2, 1, 1, 4, 2, 4, 4, 4, 2, 4, 4, 3, 4, 1, 3, 4, 2, 2, 3, 4, 4, 2, 1, 1, 1, 1, 2, 1, 1, 3, 1, 1, 1, 3))
 
-urbanUS <- load('data/urbanUS.rda')
-nullOSM <- load('data/nullOSM.rda')
+load('data/urbanUS.rda')
+load('data/nullOSM.rda')
 
 ## statesUS colors
 col <- brewer.pal(4, 'Pastel1')[as.numeric(statesUS $color)]
 
 ## functions
-dist2Degrees <- function(d, p1, p2) {
+dist2Degrees <- function(d, p1, p2) { # d:= dist, p* := 2 points in long lat
     if(abs(dist(rbind(p1 @coords, p2 @coords)) - 1) > tol) warning('euclidian dist != 1')
     d / distGeo(p1, p2)
 }
 
-GETosm <- function(aabb, key, value='.') {
+queryOSM <- function(aabb, key, value='.') {
     aabb <- st_transform(aabb, 4326) # overpass requires 4326?
     query <- opq(st_bbox(aabb))
     query <- add_osm_feature(query, key, value, value_exact=FALSE)
     osmdata_sf(query)
+}
+
+bufferSquare <- function(pnt, d) { # d:= half length of the square
+    pntE <- pnt + c(0, 1)
+    pntN <- pnt + c(1, 0)
+    spPnt <- as(pnt, 'Spatial')
+    spPntE <- as(pntE, 'Spatial')
+    spPntN <- as(pntN, 'Spatial')
+    dE <- dist2Degrees(d, spPnt, spPntE)
+    dN <- dist2Degrees(d, spPnt, spPntN)
+    pntNE <- pnt + c(dN, dE)
+    pntNW <- pnt + c(dN, -dE)
+    pntSE <- pnt + c(-dN, dE)
+    pntSW <- pnt + c(-dN, -dE)
+    st_make_grid(st_sfc(c(pntNW, pntNE, pntSE, pntSW)), n=1)
 }
 
 ## main
@@ -49,19 +65,36 @@ ui <- fluidPage(
         ),
         mainPanel(
             plotOutput(outputId='main',
-                       click='click'))
+                       click='click',
+                       dblclick='dblclick',
+                       hover=hoverOpts(id='hover', delay=50, delayType='throttle'),
+                       brush=brushOpts(id='brush', resetOnNew=TRUE))
+        )
     )
 )
 
 server <- function(input, output) {
-    rV <- reactiveValues(click=NULL, pnt=NA)
+    rV <- reactiveValues(bbox1=NULL, click=NULL, pnt=NA)
+    ## observers
     ## click
     observe(rV $click <- input $click)
-    observe({
+    observe({ ## TODO: click needs to handle what happens after food desert plotting too
+              ## set a bounding box for plotting after click
         if(!is.null(rV $click)) {
-            pnt <- st_point(as.numeric(c(rV $click $x, rV $click $y)))
-            rV $pnt <- st_transform(st_sfc(pnt, crs=st_crs(statesUS)), 4326) # WU queries in 4326
-        } else rV $click <- NULL # us rV b/c cannot set input $click
+            if(is.null(rV $pnt)) { # WRONG? pnt can change after setting bbox one, bbox1 proc should null point?
+                pnt <- st_point(as.numeric(c(rV $click $x, rV $click $y)))
+                rV $pnt <- st_transform(st_sfc(pnt, crs=st_crs(statesUS)), 4326) # WU queries in 4326
+            }
+            if(is.null(rV $bbox1) {
+                aabb <- bufferSquare(rV $pnt, 1e5)
+                st_crs(aabb) <- 4326
+                rV $bbox1 <- st_transform(aabb, 3083)
+            } else if(is.null(rV $bbox2)) {
+                aabb <- bufferSquare(rV $pnt, 7e3)
+                st_crs(aabb) <- 4326
+                rV $bbox2 <- aabb
+            }
+        } else rV $click <- NULL # use rV b/c cannot set input $click
     })
     ## double click
     observe({
@@ -72,40 +105,32 @@ server <- function(input, output) {
         }
     })
     ## reactives
-    GETosm <- reactive({
-        if(!is.na(rV $pnt)) return nullOSM
-        pnt <- rV $pnt
-        pntE <- pnt + c(0, 1)
-        pntN <- pnt + c(1, 0)
-        spPntE <- as(pntE, 'Spatial')
-        spPntN <- as(pntN, 'Spatial')
-        dE <- dist2Degrees(7e3, spPnt, spPntE)
-        dN <- dist2Degrees(7e3, spPnt, spPntN)
-        pntNE <- pnt + c(dN, dE)
-        pntNW <- pnt + c(dN, -dE)
-        pntSE <- pnt + c(-dN, dE)
-        pntSW <- pnt + c(-dN, -dE)
-        ## make bbox for overpass
-        aabb <- st_make_grid(st_sfc(c(pntNW, pntNE, pntSE, pntSW)), n=1)
-        st_crs(aabb) <- 4326
-        ## query
-        GETosm(aabb, 'shop', 'supermarket')
+    ## osm
+    getOSM <- reactive({
+        if(is.na(rV $pnt)) osm <- nullOSM
+        else {
+            aabb <- bufferSquare(rV $pnt, 7e3)
+            st_crs(aabb) <- 4326
+            osm <- queryOSM(aabb, 'shop', 'supermarket')
+        }
+        osm
     })
+    ## outputs
     ## table
     output $table <- renderTable({
-        browser()
-        osm <- GETosm()
-        with(osm $osm_points,
-             as.matrix(c(supermarkets=0,
-                         bakery=0,
-                         'long lat'="",
-                         ))
-             )
+        osm <- getOSM()
+        if(nrow(osm $osm_points)>0) {
+            with(osm,
+                 as.matrix(c(supermarkets=nrow(osm_points),
+                             'long lat'=rv $pnt
+                             )))
+        } else as.matrix(c(supermarkets=NA))
     }, rownames=TRUE, colnames=FALSE)
     ## main
     output $main <- renderPlot({
-        osm <- GETosm()
-        if(nrow(osm $osm_points)>0) { # if query is not empty
+        browser()
+        osm <- getOSM()
+        if(!is.null(rV $bbox2) && nrow(osm $osm_points)>0) { # if bbox2 & query not empty
             osm <- st_transform(osm $osm_points, 3083) # buffer in projection
             food <- st_buffer(osm, ud_units $mi)
             food <- st_union(food)
@@ -113,6 +138,10 @@ server <- function(input, output) {
             ## plot
             plot(urbanFood)
             plot(st_geometry(food), add=TRUE)
+        }
+        else if(!is.null(rV $bbox1)) {
+            urbanBox <- crop(urbanUS, as(rV $bbox1, 'Spatial'))
+            plot(urbanBox)
         } else {
             bbox <- st_bbox(statesUS)
             plot(statesUS[, 'color'], xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
