@@ -157,7 +157,7 @@ server <- function(input, output) {
             plot(st_geometry(citiesUS), add=TRUE)
             plot(st_geometry(st_transform(osmStreets $osm_lines, 3083)), add=TRUE)
         }
-        else if(!is.null(rV $bbox1)) {
+        else if(!is.null(rV $bbox1)) { # need nrow(osmStreets $osm_lines)>0 ?
             urbanBox <- crop(urbanUS, as(rV $bbox1, 'Spatial'))
             plot(urbanBox, main='urban areas', col='orange', legend=FALSE)
             plot(st_geometry(statesUS), add=TRUE)
