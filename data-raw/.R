@@ -44,3 +44,14 @@ save(urbanUS, file='data/urbanUS.rda', compress='bzip2')
 nullOSM <- st_transform(st_make_grid(
     ne_countries(scale=10, country='united states of america'), n=1), 3083)
 save(nullOSM, file='data/nullOSM.rda')
+
+citiesGLB <- ne_download(scale=10, type='populated_places', returnclass='sf')
+citiesGLB50 <- ne_download(scale=50, type='populated_places', returnclass='sf')
+citiesGLB110 <- ne_download(scale=110, type='populated_places', returnclass='sf')
+
+citiesGLB $scale50 <- citiesGLB $GEONAMEID %in% citiesGLB50 $GEONAMEID
+citiesGLB $scale110 <- citiesGLB $GEONAMEID %in% citiesGLB110 $GEONAMEID
+citiesUS <- citiesGLB[citiesGLB $ADM0_A3=='USA', ]
+
+citiesUS <- st_transform(citiesUS, 3083)
+save(citiesUS, file='data/citiesUS.rda')

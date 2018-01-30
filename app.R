@@ -8,6 +8,8 @@ library(shiny)
 library(units)
 
 ## constants
+buffBbox1 <- 1e5
+buffBbox2 <- 7e3
 nstates <- 51 # for selecting all states+DC from naturalearth
 plotWidth <- 960
 plotHeight <- 600
@@ -15,6 +17,7 @@ tol <- .Machine$double.eps^0.5
 ## proj4 string
 albersEqualAreaConic <- '+proj=aea +lat_1=27.5 +lat_2=35 +lat_0=18 +lon_0=-100 +x_0=1500000 +y_0=6000000 +ellps=GRS80 +datum=NAD83 +units=m +no_defs'
 webMercator <- '+proj=merc +lon_0=0 +k=1 +x_0=0 +y_0=0 +a=6378137 +b=6378137 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs'
+highways <- c('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential')
 
 ## geometries
 statesUS <- ne_states(country='united states of america', returnclass='sf')
@@ -22,6 +25,7 @@ statesUS <- st_transform(statesUS, 3083)
 statesUS <- with(statesUS, statesUS[order(name), ]) # 4-color assignment is in alpha order
 statesUS $color <- factor(c(2, 1, 4, 3, 1, 2, 3, 3, 4, 1, 4, 4, 2, 4, 1, 3, 1, 2, 1, 1, 4, 2, 4, 4, 4, 2, 4, 4, 3, 4, 1, 3, 4, 2, 2, 3, 4, 4, 2, 1, 1, 1, 1, 2, 1, 1, 3, 1, 1, 1, 3))
 
+load('data/citiesUS.rda')
 load('data/urbanUS.rda')
 load('data/nullOSM.rda')
 
@@ -78,23 +82,21 @@ server <- function(input, output) {
     ## observers
     ## click
     observe(rV $click <- input $click)
-    observe({ ## TODO: click needs to handle what happens after food desert plotting too
-              ## set a bounding box for plotting after click
+    observe({
         if(!is.null(rV $click)) {
-            if(is.null(rV $pnt)) { # WRONG? pnt can change after setting bbox one, bbox1 proc should null point?
-                pnt <- st_point(as.numeric(c(rV $click $x, rV $click $y)))
-                rV $pnt <- st_transform(st_sfc(pnt, crs=st_crs(statesUS)), 4326) # WU queries in 4326
-            }
-            if(is.null(rV $bbox1) {
-                aabb <- bufferSquare(rV $pnt, 1e5)
+            pnt <- st_point(as.numeric(c(rV $click $x, rV $click $y)))
+            rV $pnt <- st_transform(st_sfc(pnt, crs=st_crs(statesUS)), 4326) # WU queries in 4326
+            if(is.null(rV $bbox1)) {
+                aabb <- bufferSquare(rV $pnt, buffBbox1)
                 st_crs(aabb) <- 4326
                 rV $bbox1 <- st_transform(aabb, 3083)
             } else if(is.null(rV $bbox2)) {
-                aabb <- bufferSquare(rV $pnt, 7e3)
+                aabb <- bufferSquare(rV $pnt, buffBbox2)
                 st_crs(aabb) <- 4326
                 rV $bbox2 <- aabb
             }
-        } else rV $click <- NULL # use rV b/c cannot set input $click
+            rV $click <- NULL # use rV b/c cannot set input $click
+        }
     })
     ## double click
     observe({
@@ -102,50 +104,70 @@ server <- function(input, output) {
         if(!is.null(dblclick)) { # reset
             rV $click <- NULL
             rV $pnt <- NA
+            if(is.null(rV $bbox2)) rV $bbox1 <- NULL
+            rV $bbox2 <- NULL
         }
     })
     ## reactives
     ## osm
-    getOSM <- reactive({
+    getFood <- reactive({
         if(is.na(rV $pnt)) osm <- nullOSM
         else {
-            aabb <- bufferSquare(rV $pnt, 7e3)
+            aabb <- bufferSquare(rV $pnt, buffBbox2)
             st_crs(aabb) <- 4326
             osm <- queryOSM(aabb, 'shop', 'supermarket')
+        }
+        osm
+    })
+    getStreets <- reactive({
+        if(is.na(rV $pnt)) osm <- nullOSM
+        else {
+            aabb <- bufferSquare(rV $pnt, buffBbox1)
+            st_crs(aabb) <- 4326
+            osm <- queryOSM(aabb, 'highway', highways[1])
         }
         osm
     })
     ## outputs
     ## table
     output $table <- renderTable({
-        osm <- getOSM()
+        osm <- getFood()
         if(nrow(osm $osm_points)>0) {
             with(osm,
                  as.matrix(c(supermarkets=nrow(osm_points),
-                             'long lat'=rv $pnt
+                             'long lat'=st_as_text(rV $pnt)
                              )))
         } else as.matrix(c(supermarkets=NA))
     }, rownames=TRUE, colnames=FALSE)
     ## main
     output $main <- renderPlot({
-        browser()
-        osm <- getOSM()
-        if(!is.null(rV $bbox2) && nrow(osm $osm_points)>0) { # if bbox2 & query not empty
-            osm <- st_transform(osm $osm_points, 3083) # buffer in projection
+        osmFood <- getFood()
+        osmStreets <- getStreets()
+        if(!is.null(rV $bbox2) && nrow(osmFood $osm_points)>0) { # if bbox2 & query not empty
+            osm <- st_transform(osmFood $osm_points, 3083) # buffer in projection
             food <- st_buffer(osm, ud_units $mi)
-            food <- st_union(food)
-            urbanFood <- crop(urbanUS, as(food, 'Spatial'))
+            ## food <- st_union(food) # union after buffers expanded for rural
+            forCrop <- st_buffer(food, ud_units $mi) # plot slightly larger area
+            urbanFood <- crop(urbanUS, as(forCrop, 'Spatial'))
+            urbanPolys <- rasterToPolygons(urbanFood, dissolve=TRUE)
             ## plot
-            plot(urbanFood)
+            plot(urbanFood, main='food deserts', col='orange', legend=FALSE)
+            plot(st_geometry(st_as_sf(urbanPolys)), add=TRUE)
             plot(st_geometry(food), add=TRUE)
+            plot(st_geometry(citiesUS), add=TRUE)
+            plot(st_geometry(st_transform(osmStreets $osm_lines, 3083)), add=TRUE)
         }
         else if(!is.null(rV $bbox1)) {
             urbanBox <- crop(urbanUS, as(rV $bbox1, 'Spatial'))
-            plot(urbanBox)
+            plot(urbanBox, main='urban areas', col='orange', legend=FALSE)
+            plot(st_geometry(statesUS), add=TRUE)
+            plot(st_geometry(citiesUS[citiesUS $scale50, ]), add=TRUE)
+            plot(st_geometry(st_transform(osmStreets $osm_lines, 3083)), add=TRUE)
         } else {
             bbox <- st_bbox(statesUS)
             plot(statesUS[, 'color'], xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
                  col=col, main=NA, border=NA, graticule=st_crs(3083), axes=TRUE, key.pos=NULL, lwd.tick=0)
+            plot(st_geometry(citiesUS[citiesUS $scale110, ]), add=TRUE)
         }
     }, width=plotWidth, height=plotHeight)
 }
