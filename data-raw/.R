@@ -54,4 +54,10 @@ citiesGLB $scale110 <- citiesGLB $GEONAMEID %in% citiesGLB110 $GEONAMEID
 citiesUS <- citiesGLB[citiesGLB $ADM0_A3=='USA', ]
 
 citiesUS <- st_transform(citiesUS, 3083)
-save(citiesUS, file='data/citiesUS.rda')
+save(citiesUS, file='data/citiesUS.rda', compress='bzip2')
+
+roadsGLB <- ne_download(scale=10, type='roads', returnclass='sf')
+roadsUS <- roadsGLB[roadsGLB $sov_a3=='USA', ]
+
+roadsUS <- st_transform(roadsUS, 3083)
+save(roadsUS, file='data/roadsUS.rda', compress='bzip2')

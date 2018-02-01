@@ -8,7 +8,7 @@ library(shiny)
 library(units)
 
 ## constants
-buffBbox1 <- 1e5
+buffBbox1 <- 7e4
 buffBbox2 <- 7e3
 nstates <- 51 # for selecting all states+DC from naturalearth
 plotWidth <- 960
