@@ -1,3 +1,13 @@
+library(geosphere)
+library(osmdata)
+library(RColorBrewer)
+library(raster)
+library(rnaturalearth)
+library(sf)
+library(sp)
+library(units)
+
+
 buffBbox1 <- 1e5
 buffBbox2 <- 7e3
 tol <- .Machine$double.eps^0.5
@@ -53,6 +63,18 @@ getStreets <- function(pnt) {
     osm
 }
 
+## snap <- function(sfd, threshold) {
+##     browser()
+##     d <- st_distance(sfd)
+##     hc <- hclust(as.dist(d>threshold), method='single')
+##     groups <- cutree(hc, h=0.5)
+##     sfdSnapped <- st_sf(geom=do.call(c, lapply(1:max(groups), function(g) {
+##         st_union(sfd[groups==g, ])
+##     })))
+##     sfdSnapped $group <- 1:nrow(sfdSnapped)
+##     sfdSnapped
+## }
+
 bufferAnalysis <- function() {
     browser()
     pnt <- st_sfc(st_point(as.numeric(c(-92.44744828628, 34.566107548536)))) # ~ little rock, AR
@@ -60,16 +82,29 @@ bufferAnalysis <- function() {
     osmStreets <- getStreets(pnt)
     osm <- st_transform(osmFood $osm_points, 3083) # buffer in projection
     food <- st_buffer(osm, ud_units $mi)
+    ## testing NOTE: ls might be better than mls for instersection
+    coordsFood <- st_coordinates(food)
+    lMls <- by(coordsFood, coordsFood[, 'L2'], apply, 1, function(M) {
+        rbind(M[1:2], st_coordinates(osm[M[4], ]))
+    })
+    gMls <- lapply(lapply(lMls, function(mls) {
+        lapply(split(t(mls), seq(NCOL(mls))), matrix, nrow=2)
+    }), st_multilinestring)
+    sfMls <- do.call(st_sfc, gMls)
+    st_crs(sfMls) <- 3083
+    
     food <- st_union(food) # union after buffers expanded for rural
     forCrop <- st_buffer(food, ud_units $mi) # plot slightly larger area
     urbanFood <- crop(urbanUS, as(forCrop, 'Spatial'))
-    urbanPolys <- rasterToPolygons(urbanFood, dissolve=TRUE)
+    urbanPolys <- rasterToPolygons(urbanFood, digits=7, dissolve=TRUE)
     urbanPolys <- st_as_sf(urbanPolys)
-    urbanPolys <- st_union(urbanPolys)
+
+    st_intersection(sfMls, urbanPolys)
+    st_intersects(sfMls, urbanPolys)
+
     ## plot
     plot(urbanFood, main='food deserts', col='orange', legend=FALSE)
     plot(st_geometry(urbanPolys), add=TRUE)
     plot(st_geometry(food), add=TRUE)
     plot(st_geometry(citiesUS), add=TRUE)
-    plot(st_geometry(st_transform(osmStreets $osm_lines, 3083)), add=TRUE)
 }
