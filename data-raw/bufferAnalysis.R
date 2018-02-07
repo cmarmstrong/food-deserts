@@ -99,6 +99,7 @@ bufferAnalysis <- function() {
     urbanPolys <- rasterToPolygons(urbanFood, digits=7, dissolve=TRUE)
     urbanPolys <- st_as_sf(urbanPolys)
 
+    ## get food[2, ] for testing
     st_intersection(sfMls, urbanPolys)
     st_intersects(sfMls, urbanPolys)
 
