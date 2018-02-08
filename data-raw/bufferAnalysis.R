@@ -82,26 +82,36 @@ bufferAnalysis <- function() {
     osmStreets <- getStreets(pnt)
     osm <- st_transform(osmFood $osm_points, 3083) # buffer in projection
     food <- st_buffer(osm, ud_units $mi)
-    ## testing NOTE: ls might be better than mls for instersection
     coordsFood <- st_coordinates(food)
-    lMls <- by(coordsFood, coordsFood[, 'L2'], apply, 1, function(M) {
+    lCoords <- by(coordsFood, coordsFood[, 'L2'], apply, 1, function(M) {
         rbind(M[1:2], st_coordinates(osm[M[4], ]))
     })
-    gMls <- lapply(lapply(lMls, function(mls) {
-        lapply(split(t(mls), seq(NCOL(mls))), matrix, nrow=2)
-    }), st_multilinestring)
-    sfMls <- do.call(st_sfc, gMls)
-    st_crs(sfMls) <- 3083
+    ## mls
+    ## gMls <- lapply(lapply(lCoords, function(mls) {
+    ##     lapply(split(t(mls), seq(NCOL(mls))), matrix, nrow=2)
+    ## }), st_multilinestring)
+    ## sfMls <- do.call(st_sfc, gMls)
+    ## ls
+    lM <- lapply(lCoords, function(coords) {
+        lapply(split(t(coords), seq(NCOL(coords))), matrix, nrow=2)
+    })
+    lSf <- lapply(1:length(lM), function(i) {
+        m <- lM[[i]]
+        sfcLs <- do.call(st_sfc, lapply(m, st_linestring))
+        st_sf(geometry=sfcLs, idLs=1:length(sfcLs), idFeature=i)
+    })
+    sfLs <- do.call(rbind, lSf)
+    st_crs(sfLs) <- 3083
     
     food <- st_union(food) # union after buffers expanded for rural
     forCrop <- st_buffer(food, ud_units $mi) # plot slightly larger area
     urbanFood <- crop(urbanUS, as(forCrop, 'Spatial'))
-    urbanPolys <- rasterToPolygons(urbanFood, digits=7, dissolve=TRUE)
+    urbanPolys <- rasterToPolygons(urbanFood, digits=7, dissolve=TRUE) # truncate digits to snap polygons
     urbanPolys <- st_as_sf(urbanPolys)
 
     ## get food[2, ] for testing
-    st_intersection(sfMls, urbanPolys)
-    st_intersects(sfMls, urbanPolys)
+    sfIntersections <- st_intersection(sfLs, urbanPolys)
+    ## st_length(st_cast(sfIntersections, 'LINESTRING'))
 
     ## plot
     plot(urbanFood, main='food deserts', col='orange', legend=FALSE)
