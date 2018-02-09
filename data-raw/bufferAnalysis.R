@@ -81,7 +81,7 @@ bufferAnalysis <- function() {
     osmFood <- getFood(pnt)
     osmStreets <- getStreets(pnt)
     osm <- st_transform(osmFood $osm_points, 3083) # buffer in projection
-    food <- st_buffer(osm, ud_units $mi)
+    food <- st_buffer(osm, 10*ud_units $mi)
     coordsFood <- st_coordinates(food)
     lCoords <- by(coordsFood, coordsFood[, 'L2'], apply, 1, function(M) {
         rbind(M[1:2], st_coordinates(osm[M[4], ]))
@@ -109,9 +109,20 @@ bufferAnalysis <- function() {
     urbanPolys <- rasterToPolygons(urbanFood, digits=7, dissolve=TRUE) # truncate digits to snap polygons
     urbanPolys <- st_as_sf(urbanPolys)
 
-    ## get food[2, ] for testing
     sfIntersections <- st_intersection(sfLs, urbanPolys)
-    ## st_length(st_cast(sfIntersections, 'LINESTRING'))
+    sfLs $urbanLengths <- st_length(st_cast(sfIntersections, 'MULTILINESTRING'))
+    ## totalLength <- urbanLength + ruralLength/10
+    ## xsLength <- totalLength - 16093.44
+    ## urbanLength + ruralLength/10 = 1 mile = 16093.44 meteres
+    ## cast to linestring and order by st_distance from center point
+    ## order linestrings from furthest to closest from center
+    ## for each linestring,
+    ##   if length of linestring < xsLength
+    ##     then xsLength <- xsLength - length of linestring
+    ##     remove linestring from list
+    ##   else
+    ##     length of linestring <- length of linestring - xsLength
+    ##     break
 
     ## plot
     plot(urbanFood, main='food deserts', col='orange', legend=FALSE)
