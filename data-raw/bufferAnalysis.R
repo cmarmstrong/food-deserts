@@ -106,19 +106,30 @@ bufferAnalysis <- function() {
     food <- st_union(food) # union after buffers expanded for rural
     forCrop <- st_buffer(food, ud_units $mi) # plot slightly larger area
     urbanFood <- crop(urbanUS, as(forCrop, 'Spatial'))
-    urbanPolys <- rasterToPolygons(urbanFood, digits=7, dissolve=TRUE) # truncate digits to snap polygons
+    urbanPolys <- rasterToPolygons(urbanFood, digits=7, dissolve=TRUE) # digits to snap
     urbanPolys <- st_as_sf(urbanPolys)
 
     sfIntersections <- st_intersection(sfLs, urbanPolys)
-    sfLs $urbanLengths <- st_length(st_cast(sfIntersections, 'MULTILINESTRING'))
-    ## totalLength <- urbanLength + ruralLength/10
-    ## xsLength <- totalLength - 16093.44
+    sfLs $urbanLength <- st_length(st_cast(sfIntersections, 'MULTILINESTRING'))
+    sfLs $ruralLength <- set_units(10*ud_units $mi - sfLs $urbanLength, 'm')
+    sfLs $totalLength <- with(sfLs, urbanLength + ruralLength/10)
+    sfLs $xsLength <- set_units(ud_units $mi - sfLs $totalLength, 'm')
     ## urbanLength + ruralLength/10 = 1 mile = 16093.44 meteres
-    ## cast to linestring and order by st_distance from center point
-    ## order linestrings from furthest to closest from center
-    ## for each linestring,
-    ##   if length of linestring < xsLength
-    ##     then xsLength <- xsLength - length of linestring
+    ## OPT1: cast to linestring and order by st_distance from center point
+    ##       order linestrings from furthest to closest from center
+    ## OPT2: intersections are already ordered, and can build differences on fly and infer order
+    ##       start with check for if end point is on circle (might have to do something like that
+    ##       anyway)
+    ## OPT3: cast to linestring
+    ##       make column of point on line (get end point from sfLs) and begin with line from
+    ##       last end point in intersection to end point on circle. insert rural linestrings
+    ##       between any multilinestrings, and end with linestring from start point to center
+    ##       (in case center is in rural)
+    ## for each multilinestring,
+    ##   ls <- st_cast(mls, 'LINESTRING')
+    ##   coordsLs <- st_coords(ls)
+    ##   if length of ls < xsLength
+    ##     then xsLength <- xsLength - length ls
     ##     remove linestring from list
     ##   else
     ##     length of linestring <- length of linestring - xsLength
