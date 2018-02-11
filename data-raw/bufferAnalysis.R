@@ -114,7 +114,7 @@ bufferAnalysis <- function() {
     sfIn $totalLength <- with(sfIn, urbanLength + ruralLength/10)
     sfIn $xsLength <- set_units(ud_units $mi - sfIn $totalLength, 'm')
     ## urbanLength + ruralLength/10 = 1 mile = 16093.44 meteres
-    mapply(function(lstring, mls) {
+    newBuffer <- mapply(function(lstring, mls) {
         coordsLs <- st_coordinates(lstring)
         coordsLs[, 'L1'] <- c(0, 0)
         coordsLs <- cbind(coordsLs, L2=c(1, 1))
@@ -128,38 +128,38 @@ bufferAnalysis <- function() {
         lenLs <- st_length(sfLs)
         csumLs <- cumsum(ifelse(sfLs $urban==1, lenLs, lenLs/10))
         xsLs <- with(ud_units, csumLs*m > mi)
-        browser()
-        xsLs1 <- sfLs[xsLs, ][1, ]
-        st_crs(xsLs1) <- 3083
-        xsCoords1 <- st_coordinates(st_transform(xsLs1, 4326))[, c('X', 'Y')]
-        b <- bearing(xsCoords1)
-        isUrban <- sfLs[xsLs, 'urban', drop=TRUE][1]
+        lsXs <- sfLs[xsLs, ][1, ]
+        ## isUrban <- sfLs[xsLs, 'urban', drop=TRUE][1]
+        ## isUrban <- lsXs $urban
         xsLen <- with(ud_units, csumLs[xsLs][1]*m - mi)
         startLen <- rev(csumLs[!xsLs])[1]
         okLen <- set_units(with(ud_units, mi - startLen*m), 'm')
-        okLen <- ifelse(isUrban, okLen, okLen*10)
-        newPnt <- destPoint(xsCoords1, b, okLen)
+        okLen <- ifelse(lsXs $urban==1, okLen, okLen*10)
+        ## xsCoords <- st_coordinates(st_transform(sfLs[xsLs, ], 4326))[, c('X', 'Y')]
+        xsCoords <- st_coordinates(st_transform(lsXs, 4326))[, c('X', 'Y')]
+        b <- bearing(xsCoords)
+        ## NOTE: newPnt may not be correct
+        newPnt <- destPoint(xsCoords, b, okLen)[1, ]
         ## newLs <- st_linestring(rbind(xsCoords1[1, ], newPnt[1, ]))
         ## newSf <- st_sf(geometry=st_sfc(newLs), urban=isUrban)
         ## st_crs(newSf) <- 4326
         ## sfLs <- rbind(sfLs[!xsLs, ], st_transform(newSf, 3083))
         ## rev(st_coordinates(sfLs))[1]
-        newPnt
+        sfcPnt <- st_sfc(st_point(newPnt))
+        st_crs(sfcPnt) <- 4326
+        st_coordinates(st_transform(sfcPnt, 3083))
     }, split(sfLs, 1:nrow(sfLs)), split(sfIn, 1:nrow(sfIn)))
-    ## for each multilinestring,
-    ##   ls <- st_cast(mls, 'LINESTRING')
-    ##   coordsLs <- st_coords(ls)
-    ##   if length of ls < xsLength
-    ##     then xsLength <- xsLength - length ls
-    ##     remove linestring from list
-    ##   else
-    ##     length of linestring <- length of linestring - xsLength
-    ##     break
-    ## make new buffer polygon from end points
+    newBuffer <- t(newBuffer)
+    lNewBuffer <- lapply(split(newBuffer, rep(1:29, each=121)), matrix, ncol=2)
+    sfcNewBuffers <- st_sfc(lapply(lNewBuffer, function(newBuffer) {
+        st_polygon(list(rbind(newBuffer, newBuffer[1, ])))}))
+    foodDeserts <- st_union(sfcNewBuffers)
+    st_crs(foodDeserts) <- 3083
 
     ## plot
     plot(urbanFood, main='food deserts', col='orange', legend=FALSE)
     plot(st_geometry(urbanPolys), add=TRUE)
+    plot(st_geometry(foodDeserts), add=TRUE)
     plot(st_geometry(food), add=TRUE)
     plot(st_geometry(citiesUS), add=TRUE)
 }
