@@ -76,7 +76,6 @@ getStreets <- function(pnt) {
 ## }
 
 bufferAnalysis <- function() {
-    browser()
     pnt <- st_sfc(st_point(as.numeric(c(-92.44744828628, 34.566107548536)))) # ~ little rock, AR
     osmFood <- getFood(pnt)
     osmStreets <- getStreets(pnt)
@@ -103,28 +102,50 @@ bufferAnalysis <- function() {
     sfLs <- do.call(rbind, lSf)
     st_crs(sfLs) <- 3083
     
-    food <- st_union(food) # union after buffers expanded for rural
+    ## food <- st_union(food) # union after buffers expanded for rural
     forCrop <- st_buffer(food, ud_units $mi) # plot slightly larger area
     urbanFood <- crop(urbanUS, as(forCrop, 'Spatial'))
     urbanPolys <- rasterToPolygons(urbanFood, digits=7, dissolve=TRUE) # digits to snap
     urbanPolys <- st_as_sf(urbanPolys)
 
-    sfIntersections <- st_intersection(sfLs, urbanPolys)
-    sfLs $urbanLength <- st_length(st_cast(sfIntersections, 'MULTILINESTRING'))
-    sfLs $ruralLength <- set_units(10*ud_units $mi - sfLs $urbanLength, 'm')
-    sfLs $totalLength <- with(sfLs, urbanLength + ruralLength/10)
-    sfLs $xsLength <- set_units(ud_units $mi - sfLs $totalLength, 'm')
+    sfIn <- st_intersection(sfLs, urbanPolys)
+    sfIn $urbanLength <- st_length(st_cast(sfIn, 'MULTILINESTRING'))
+    sfIn $ruralLength <- set_units(10*ud_units $mi - sfIn $urbanLength, 'm')
+    sfIn $totalLength <- with(sfIn, urbanLength + ruralLength/10)
+    sfIn $xsLength <- set_units(ud_units $mi - sfIn $totalLength, 'm')
     ## urbanLength + ruralLength/10 = 1 mile = 16093.44 meteres
-    ## OPT1: cast to linestring and order by st_distance from center point
-    ##       order linestrings from furthest to closest from center
-    ## OPT2: intersections are already ordered, and can build differences on fly and infer order
-    ##       start with check for if end point is on circle (might have to do something like that
-    ##       anyway)
-    ## OPT3: cast to linestring
-    ##       make column of point on line (get end point from sfLs) and begin with line from
-    ##       last end point in intersection to end point on circle. insert rural linestrings
-    ##       between any multilinestrings, and end with linestring from start point to center
-    ##       (in case center is in rural)
+    mapply(function(lstring, mls) {
+        coordsLs <- st_coordinates(lstring)
+        coordsLs[, 'L1'] <- c(0, 0)
+        coordsLs <- cbind(coordsLs, L2=c(1, 1))
+        coordsMls <- rbind(coordsLs[1, ], st_coordinates(mls), coordsLs[2, ])
+        coordsMls <- coordsMls[, c('X', 'Y')]
+        sfLs <- st_sf(urban=c(rep(c(0, 1), (nrow(coordsMls)-1)%/%2), 0),
+                      geometry=st_sfc(lapply(2:nrow(coordsMls), function(i) {
+                          st_linestring(rbind(coordsMls[i-1, ], coordsMls[i, ]))
+                      })))
+        st_crs(sfLs) <- 3083
+        lenLs <- st_length(sfLs)
+        csumLs <- cumsum(ifelse(sfLs $urban==1, lenLs, lenLs/10))
+        xsLs <- with(ud_units, csumLs*m > mi)
+        browser()
+        xsLs1 <- sfLs[xsLs, ][1, ]
+        st_crs(xsLs1) <- 3083
+        xsCoords1 <- st_coordinates(st_transform(xsLs1, 4326))[, c('X', 'Y')]
+        b <- bearing(xsCoords1)
+        isUrban <- sfLs[xsLs, 'urban', drop=TRUE][1]
+        xsLen <- with(ud_units, csumLs[xsLs][1]*m - mi)
+        startLen <- rev(csumLs[!xsLs])[1]
+        okLen <- set_units(with(ud_units, mi - startLen*m), 'm')
+        okLen <- ifelse(isUrban, okLen, okLen*10)
+        newPnt <- destPoint(xsCoords1, b, okLen)
+        ## newLs <- st_linestring(rbind(xsCoords1[1, ], newPnt[1, ]))
+        ## newSf <- st_sf(geometry=st_sfc(newLs), urban=isUrban)
+        ## st_crs(newSf) <- 4326
+        ## sfLs <- rbind(sfLs[!xsLs, ], st_transform(newSf, 3083))
+        ## rev(st_coordinates(sfLs))[1]
+        newPnt
+    }, split(sfLs, 1:nrow(sfLs)), split(sfIn, 1:nrow(sfIn)))
     ## for each multilinestring,
     ##   ls <- st_cast(mls, 'LINESTRING')
     ##   coordsLs <- st_coords(ls)
@@ -134,6 +155,7 @@ bufferAnalysis <- function() {
     ##   else
     ##     length of linestring <- length of linestring - xsLength
     ##     break
+    ## make new buffer polygon from end points
 
     ## plot
     plot(urbanFood, main='food deserts', col='orange', legend=FALSE)
