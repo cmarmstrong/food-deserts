@@ -75,6 +75,27 @@ getStreets <- function(pnt) {
 ##     sfdSnapped
 ## }
 
+function(x, p, s, dist) {
+    ## check st_crs(x) == st_crs(p) ?
+    buf <- st_buffer(x, d)
+    coordsBuf <- st_coordinates(buf)
+    ## make linestrings from x to points on respective buf
+    lCoords <- by(coordsBuf, coordsBuf[, 'L2'], apply, 1, function(M) {
+        rbind(M[1:2], st_coordinates(x[M[4], ]))
+    })
+    lM <- lapply(lCoords, function(coords) {
+        lapply(split(t(coords), seq(NCOL(coords))), matrix, nrow=2)
+    })
+    lSf <- lapply(1:length(lM), function(i) {
+        m <- lM[[i]]
+        sfcLs <- do.call(st_sfc, lapply(m, st_linestring))
+        st_sf(geometry=sfcLs, idLs=1:length(sfcLs), idFeature=i)
+    })
+    sfLs <- do.call(rbind, lSf)
+    ## intersect linestrings with "terrain" polygons
+    sfIn <- st_intersection(sfLs, p)
+}
+
 bufferAnalysis <- function() {
     pnt <- st_sfc(st_point(as.numeric(c(-92.44744828628, 34.566107548536)))) # ~ little rock, AR
     osmFood <- getFood(pnt)
