@@ -85,12 +85,6 @@ bufferAnalysis <- function() {
     lCoords <- by(coordsFood, coordsFood[, 'L2'], apply, 1, function(M) {
         rbind(M[1:2], st_coordinates(osm[M[4], ]))
     })
-    ## mls
-    ## gMls <- lapply(lapply(lCoords, function(mls) {
-    ##     lapply(split(t(mls), seq(NCOL(mls))), matrix, nrow=2)
-    ## }), st_multilinestring)
-    ## sfMls <- do.call(st_sfc, gMls)
-    ## ls
     lM <- lapply(lCoords, function(coords) {
         lapply(split(t(coords), seq(NCOL(coords))), matrix, nrow=2)
     })
@@ -121,8 +115,8 @@ bufferAnalysis <- function() {
         coordsMls <- rbind(coordsLs[1, ], st_coordinates(mls), coordsLs[2, ])
         coordsMls <- coordsMls[, c('X', 'Y')]
         sfLs <- st_sf(urban=c(rep(c(0, 1), (nrow(coordsMls)-1)%/%2), 0),
-                      geometry=st_sfc(lapply(2:nrow(coordsMls), function(i) {
-                          st_linestring(rbind(coordsMls[i-1, ], coordsMls[i, ]))
+                      geometry=st_sfc(lapply(nrow(coordsMls):2, function(i) {
+                          st_linestring(rbind(coordsMls[i, ], coordsMls[i-1, ]))
                       })))
         st_crs(sfLs) <- 3083
         lenLs <- st_length(sfLs)
@@ -140,11 +134,6 @@ bufferAnalysis <- function() {
         b <- bearing(xsCoords)
         ## NOTE: newPnt may not be correct
         newPnt <- destPoint(xsCoords, b, okLen)[1, ]
-        ## newLs <- st_linestring(rbind(xsCoords1[1, ], newPnt[1, ]))
-        ## newSf <- st_sf(geometry=st_sfc(newLs), urban=isUrban)
-        ## st_crs(newSf) <- 4326
-        ## sfLs <- rbind(sfLs[!xsLs, ], st_transform(newSf, 3083))
-        ## rev(st_coordinates(sfLs))[1]
         sfcPnt <- st_sfc(st_point(newPnt))
         st_crs(sfcPnt) <- 4326
         st_coordinates(st_transform(sfcPnt, 3083))
@@ -160,6 +149,5 @@ bufferAnalysis <- function() {
     plot(urbanFood, main='food deserts', col='orange', legend=FALSE)
     plot(st_geometry(urbanPolys), add=TRUE)
     plot(st_geometry(foodDeserts), add=TRUE)
-    plot(st_geometry(food), add=TRUE)
     plot(st_geometry(citiesUS), add=TRUE)
 }
