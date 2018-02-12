@@ -75,9 +75,17 @@ getStreets <- function(pnt) {
 ##     sfdSnapped
 ## }
 
-function(x, p, s, dist) {
-    ## check st_crs(x) == st_crs(p) ?
-    buf <- st_buffer(x, d)
+## x points
+## p polygons with factor ids
+## s named vector of "speeds"
+## dist distance (units object)
+##
+## names of s must match factor ids in p, values of s indicate speeds through
+##   polygons with respective factor
+surfBuff <- function(x, p, s, dist) {
+    if(st_crs(x)!=st_crs(p)) stop('CRS of x and p do not match')
+    else crsBuf <- st_crs(x)
+    buf <- st_buffer(x, dist)
     coordsBuf <- st_coordinates(buf)
     ## make linestrings from x to points on respective buf
     lCoords <- by(coordsBuf, coordsBuf[, 'L2'], apply, 1, function(M) {
@@ -94,6 +102,43 @@ function(x, p, s, dist) {
     sfLs <- do.call(rbind, lSf)
     ## intersect linestrings with "terrain" polygons
     sfIn <- st_intersection(sfLs, p)
+    ## attenuate linestring lengths by "terrain"
+    newBuffer <- mapply(function(lstring, mls) {
+        coordsLs <- st_coordinates(lstring)
+        coordsLs[, 'L1'] <- c(0, 0)
+        coordsLs <- cbind(coordsLs, L2=c(1, 1))
+        coordsMls <- rbind(coordsLs[1, ], st_coordinates(mls), coordsLs[2, ])
+        coordsMls <- coordsMls[, c('X', 'Y')]
+        sfLs <- st_sf(urban=c(rep(c(0, 1), (nrow(coordsMls)-1)%/%2), 0),
+                      geometry=st_sfc(lapply(nrow(coordsMls):2, function(i) {
+                          st_linestring(rbind(coordsMls[i, ], coordsMls[i-1, ]))
+                      })))
+        st_crs(sfLs) <- crsBuf
+        lenLs <- st_length(sfLs)
+        csumLs <- cumsum(ifelse(sfLs $urban==1, lenLs, lenLs/10))
+        xsLs <- with(ud_units, csumLs*m > mi)
+        lsXs <- sfLs[xsLs, ][1, ]
+        ## isUrban <- sfLs[xsLs, 'urban', drop=TRUE][1]
+        ## isUrban <- lsXs $urban
+        xsLen <- with(ud_units, csumLs[xsLs][1]*m - mi)
+        startLen <- rev(csumLs[!xsLs])[1]
+        okLen <- set_units(with(ud_units, mi - startLen*m), 'm')
+        okLen <- ifelse(lsXs $urban==1, okLen, okLen*10)
+        ## xsCoords <- st_coordinates(st_transform(sfLs[xsLs, ], 4326))[, c('X', 'Y')]
+        xsCoords <- st_coordinates(st_transform(lsXs, 4326))[, c('X', 'Y')]
+        b <- bearing(xsCoords)
+        ## NOTE: newPnt may not be correct
+        newPnt <- destPoint(xsCoords, b, okLen)[1, ]
+        sfcPnt <- st_sfc(st_point(newPnt))
+        st_crs(sfcPnt) <- 4326
+        st_coordinates(st_transform(sfcPnt, 3083))
+    }, split(sfLs, 1:nrow(sfLs)), split(sfIn, 1:nrow(sfIn)))
+    newBuffer <- t(newBuffer)
+    lNewBuffer <- lapply(split(newBuffer, rep(1:29, each=121)), matrix, ncol=2)
+    sfcNewBuffers <- st_sfc(lapply(lNewBuffer, function(newBuffer) {
+        st_polygon(list(rbind(newBuffer, newBuffer[1, ])))}))
+    foodDeserts <- st_union(sfcNewBuffers)
+    st_crs(foodDeserts) <- 3083
 }
 
 bufferAnalysis <- function() {
