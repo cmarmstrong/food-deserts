@@ -63,17 +63,17 @@ getStreets <- function(pnt) {
     osm
 }
 
-## snap <- function(sfd, threshold) {
-##     browser()
-##     d <- st_distance(sfd)
-##     hc <- hclust(as.dist(d>threshold), method='single')
-##     groups <- cutree(hc, h=0.5)
-##     sfdSnapped <- st_sf(geom=do.call(c, lapply(1:max(groups), function(g) {
-##         st_union(sfd[groups==g, ])
-##     })))
-##     sfdSnapped $group <- 1:nrow(sfdSnapped)
-##     sfdSnapped
-## }
+snap <- function(sfd, threshold) {
+    browser()
+    d <- sf::st_distance(sfd)
+    hc <- hclust(as.dist(d>threshold), method='single')
+    groups <- cutree(hc, h=0.5)
+    sfdSnapped <- sf::st_sf(geom=do.call(c, lapply(1:max(groups), function(g) {
+        sf::st_union(sfd[groups==g, ])
+    })))
+    sfdSnapped $group <- 1:nrow(sfdSnapped)
+    sfdSnapped
+}
 
 bufferAnalysis <- function() {
     pnt <- st_sfc(st_point(as.numeric(c(-92.44744828628, 34.566107548536)))) # ~ little rock, AR

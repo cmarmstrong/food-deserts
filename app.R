@@ -1,3 +1,4 @@
+library(buffy)
 library(geosphere)
 library(osmdata)
 library(RColorBrewer)
@@ -144,14 +145,22 @@ server <- function(input, output) {
         osmFood <- getFood()
         osmStreets <- getStreets()
         if(!is.null(rV $bbox2) && nrow(osmFood $osm_points)>0) { # if bbox2 & query not empty
-            osm <- st_transform(osmFood $osm_points, 3083) # buffer in projection
-            food <- st_buffer(osm, ud_units $mi)
-            ## food <- st_union(food) # union after buffers expanded for rural
-            forCrop <- st_buffer(food, ud_units $mi) # plot slightly larger area
-            urbanFood <- crop(urbanUS, as(forCrop, 'Spatial'))
-            urbanPolys <- rasterToPolygons(urbanFood, dissolve=TRUE)
+            browser()
+            osm <- osmFood $osm_points
+            osm <- st_transform(osm, 3083) # buffer in projection
+            urbanLocal <- crop(urbanUS, as(osm, 'Spatial'))
+            urbanPolys <- rasterToPolygons(urbanLocal, dissolve=TRUE)
+            urbanPolys <- st_as_sf(urbanPolys)
+            st_crs(urbanPolys) <- 3083
+            urbanPolys $s <- 10
+            ## food <- st_buffer(osm, ud_units $mi)
+            food <- buffy::surfBuff(st_geometry(osm), urbanPolys, ud_units $mi)
+            food <- st_union(food) # union after buffers expanded for rural
+            ## forCrop <- st_buffer(food, ud_units $mi) # plot slightly larger area
+            ## urbanFood <- crop(urbanUS, as(forCrop, 'Spatial'))
+            ## urbanPolys <- rasterToPolygons(urbanFood, dissolve=TRUE)
             ## plot
-            plot(urbanFood, main='food deserts', col='orange', legend=FALSE)
+            plot(urbanLocal, main='food deserts', col='orange', legend=FALSE)
             plot(st_geometry(st_as_sf(urbanPolys)), add=TRUE)
             plot(st_geometry(food), add=TRUE)
             plot(st_geometry(citiesUS), add=TRUE)
