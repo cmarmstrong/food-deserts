@@ -147,20 +147,20 @@ server <- function(input, output) {
         if(!is.null(rV $bbox2) && nrow(osmFood $osm_points)>0) { # if bbox2 & query not empty
             browser()
             osm <- osmFood $osm_points
-            osm <- st_transform(osm, 3083) # buffer in projection
-            urbanLocal <- crop(urbanUS, as(osm, 'Spatial'))
-            urbanPolys <- rasterToPolygons(urbanLocal, dissolve=TRUE)
+            osm <- sf::st_transform(osm, 3083) # buffer in projection
+            buffOsm <- sf::st_buffer(osm, 10*units::ud_units $mi) # max buffer for cropping
+            urbanLocal <- crop(urbanUS, as(buffOsm, 'Spatial'))
+            urbanPolys <- rasterToPolygons(urbanLocal, digits=6, dissolve=TRUE)
             urbanPolys <- st_as_sf(urbanPolys)
             st_crs(urbanPolys) <- 3083
-            urbanPolys $s <- 10
-            ## food <- st_buffer(osm, ud_units $mi)
-            food <- buffy::surfBuff(st_geometry(osm), urbanPolys, ud_units $mi)
-            food <- st_union(food) # union after buffers expanded for rural
-            ## forCrop <- st_buffer(food, ud_units $mi) # plot slightly larger area
-            ## urbanFood <- crop(urbanUS, as(forCrop, 'Spatial'))
-            ## urbanPolys <- rasterToPolygons(urbanFood, dissolve=TRUE)
+            urbanPolys $s <- 10 # HERES THE PROBLEM, urbanPolys now an sfc object and assignment not working
+            food <- buffy::surfBuff(st_geometry(osm), urbanPolys, 10*units::ud_units $mi)
+            food <- st_union(food)
             ## plot
-            plot(urbanLocal, main='food deserts', col='orange', legend=FALSE)
+            ## bboxFood <- sf::st_bbox(food)
+            ## plot(0, main='food deserts', xlab='', ylab='', # initialize plot window
+            ##      xlim=bboxFood[c(1,3)], ylim=bboxFood[c(2,4)])
+            plot(urbanLocal, main='food deserts', col='orange', legend=FALSE, add=TRUE)
             plot(st_geometry(st_as_sf(urbanPolys)), add=TRUE)
             plot(st_geometry(food), add=TRUE)
             plot(st_geometry(citiesUS), add=TRUE)
@@ -174,8 +174,8 @@ server <- function(input, output) {
             plot(st_geometry(st_transform(osmStreets $osm_lines, 3083)), add=TRUE)
         } else {
             bbox <- st_bbox(statesUS)
-            plot(statesUS[, 'color'], xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)],
-                 col=col, main=NA, border=NA, graticule=st_crs(3083), axes=TRUE, key.pos=NULL, lwd.tick=0)
+            plot(statesUS[, 'color'], xlim=bbox[c(1, 3)], ylim=bbox[c(2, 4)], col=col, main=NA,
+                 border=NA, graticule=st_crs(3083), axes=TRUE, key.pos=NULL, lwd.tick=0)
             plot(st_geometry(citiesUS[citiesUS $scale110, ]), add=TRUE)
         }
     }, width=plotWidth, height=plotHeight)
